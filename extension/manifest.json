@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "CareerSwipe Job Scanner",
+  "version": "1.0",
+  "description": "Extract job descriptions and sync with CareerSwipe AI.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.linkedin.com/*", "*://*.indeed.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}

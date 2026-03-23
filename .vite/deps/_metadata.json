@@ -1,0 +1,97 @@
+{
+  "hash": "8575f29f",
+  "configHash": "9e86d0a1",
+  "lockfileHash": "2acac367",
+  "browserHash": "cb3921c1",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "a22b8d3d",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "7801d109",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "999092e7",
+      "needsInterop": true
+    },
+    "motion/react": {
+      "src": "../../node_modules/motion/dist/es/react.mjs",
+      "file": "motion_react.js",
+      "fileHash": "f405c63e",
+      "needsInterop": false
+    },
+    "lucide-react": {
+      "src": "../../node_modules/lucide-react/dist/esm/lucide-react.js",
+      "file": "lucide-react.js",
+      "fileHash": "51bc0b21",
+      "needsInterop": false
+    },
+    "pdfjs-dist": {
+      "src": "../../node_modules/pdfjs-dist/build/pdf.mjs",
+      "file": "pdfjs-dist.js",
+      "fileHash": "76f99518",
+      "needsInterop": false
+    },
+    "recharts": {
+      "src": "../../node_modules/recharts/es6/index.js",
+      "file": "recharts.js",
+      "fileHash": "3f544903",
+      "needsInterop": false
+    },
+    "react-quill-new": {
+      "src": "../../node_modules/react-quill-new/lib/index.js",
+      "file": "react-quill-new.js",
+      "fileHash": "1c446703",
+      "needsInterop": false
+    },
+    "html2pdf.js": {
+      "src": "../../node_modules/html2pdf.js/dist/html2pdf.js",
+      "file": "html2pdf__js.js",
+      "fileHash": "e30b7c98",
+      "needsInterop": true
+    },
+    "html-docx-js-typescript": {
+      "src": "../../node_modules/html-docx-js-typescript/dist/index.js",
+      "file": "html-docx-js-typescript.js",
+      "fileHash": "9a08f048",
+      "needsInterop": true
+    },
+    "file-saver": {
+      "src": "../../node_modules/file-saver/dist/FileSaver.min.js",
+      "file": "file-saver.js",
+      "fileHash": "d9585944",
+      "needsInterop": true
+    },
+    "mammoth/mammoth.browser.js": {
+      "src": "../../node_modules/mammoth/mammoth.browser.js",
+      "file": "mammoth_mammoth__browser__js.js",
+      "fileHash": "c417544e",
+      "needsInterop": true
+    }
+  },
+  "chunks": {
+    "chunk-S4FROT55": {
+      "file": "chunk-S4FROT55.js"
+    },
+    "chunk-S5ZRYWOR": {
+      "file": "chunk-S5ZRYWOR.js"
+    },
+    "chunk-S7X36WWR": {
+      "file": "chunk-S7X36WWR.js"
+    },
+    "chunk-Y4OC7NTI": {
+      "file": "chunk-Y4OC7NTI.js"
+    },
+    "chunk-OL46QLBJ": {
+      "file": "chunk-OL46QLBJ.js"
+    }
+  }
+}
