@@ -213,12 +213,17 @@ export default function App() {
     setActiveCvSection(sections[nextIndex]);
   };
 
-  // Global Keyboard Shortcuts
+  // Global Keyboard Shortcuts — use refs to avoid stale closures
+  const saveCvDraftRef = React.useRef(saveCvDraft);
+  saveCvDraftRef.current = saveCvDraft;
+  const cycleSectionRef = React.useRef(cycleSection);
+  cycleSectionRef.current = cycleSection;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        saveCvDraft();
+        saveCvDraftRef.current();
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
         e.preventDefault();
@@ -226,13 +231,13 @@ export default function App() {
       }
       if (e.key === 'Tab' && document.activeElement === document.body) {
         e.preventDefault();
-        cycleSection(e);
+        cycleSectionRef.current(e);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeCvSection, cvData]);
+  }, []);
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 10, 150));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 10, 50));
@@ -413,15 +418,31 @@ export default function App() {
     setIsGeneratingCoverLetter(true);
     setCoverLetterStep(3);
     try {
-      const { generateCoverLetter } = await import('./services/aiService');
-      // Fix: Ensure we use the freshly uploaded text if available. The previous fallback JSON of cvData was causing the AI to use old/default data.
       if (!coverLetterText) {
         throw new Error("No resume text found. Please upload your CV first.");
       }
-      const resumeText = coverLetterText;
-      console.log('[CoverLetter] Sending CV text to generator. Length:', resumeText.length, '| First 200 chars:', resumeText.substring(0, 200));
-      const result = await generateCoverLetter(resumeText, jobDescription, coverLetterTone);
-      const formattedResult = result.split('\n').map(line => line.trim() ? `<p>${line}</p>` : '<br/>').join('');
+
+      // Call server API (API key stays server-side, never in the browser)
+      const response = await fetch('/api/cover-letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resumeText: coverLetterText,
+          jobDescription,
+          tone: coverLetterTone
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const result = data.coverLetter || '';
+      // Safely format — escape HTML entities to prevent XSS
+      const escapeHtml = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const formattedResult = result.split('\n').map((line: string) => line.trim() ? `<p>${escapeHtml(line)}</p>` : '<br/>').join('');
       setGeneratedCoverLetter(formattedResult);
     } catch (error) {
       console.error('Failed to generate cover letter:', error);
@@ -432,9 +453,9 @@ export default function App() {
   };
 
   const handleCopy = () => {
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = generatedCoverLetter;
-    const textContent = tempDiv.innerText || tempDiv.textContent || "";
+    // Extract plain text from the Quill editor directly (avoids innerHTML XSS)
+    const editor = document.querySelector('.ql-editor');
+    const textContent = editor?.textContent || '';
     navigator.clipboard.writeText(textContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -454,15 +475,9 @@ export default function App() {
   })();
 
   const downloadTXT = () => {
-    let textContent = generatedCoverLetter
-      .replace(/<p[^>]*>/g, '')
-      .replace(/<\/p>/g, '\n\n')
-      .replace(/<br\s*[\/]?>/gi, '\n')
-      .replace(/<[^>]+>/g, '');
-    
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = textContent;
-    textContent = tempDiv.textContent || tempDiv.innerText || "";
+    // Extract text directly from the Quill editor (avoids innerHTML XSS)
+    const editor = document.querySelector('.ql-editor');
+    let textContent = editor?.textContent || '';
     textContent = textContent.replace(/\n{3,}/g, '\n\n').trim();
 
     const blob = new Blob([textContent], { type: 'text/plain' });
@@ -476,36 +491,23 @@ export default function App() {
   };
 
   const downloadDOCX = async () => {
-    // Try to get content from editor first for latest edits
+    // Get content from Quill editor (already sanitized by Quill's own parser)
     const editor = document.querySelector('.ql-editor');
     const content = editor ? editor.innerHTML : generatedCoverLetter;
 
     if (!content || content.trim() === '' || content === '<p><br></p>') {
-      alert("No content found to download.");
+      showToast("No content found to download.", 'error');
       return;
     }
 
-    const cleanHtml = `
-      <!DOCTYPE html>
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset='utf-8'>
-        <title>Cover Letter</title>
-        <style>
-          body { font-family: "Times New Roman", serif; font-size: 12pt; padding: 1in; }
-          p { margin-bottom: 12pt; line-height: 1.5; }
-        </style>
-      </head>
-      <body>
-        ${content}
-      </body>
-      </html>
-    `;
-    
-    const blob = new Blob(['\ufeff', cleanHtml], {
-      type: 'application/msword'
-    });
-    
+    // Quill editor content is already sanitized — it strips script tags and event handlers
+    const cleanHtml = `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'><title>Cover Letter</title>
+<style>body{font-family:"Times New Roman",serif;font-size:12pt;padding:1in;}p{margin-bottom:12pt;line-height:1.5;}</style>
+</head><body>${content}</body></html>`;
+
+    const blob = new Blob(['\ufeff', cleanHtml], { type: 'application/msword' });
     saveAs(blob, `${coverLetterUserName}_Cover_Letter.doc`);
     setShowCoverLetterDownloadMenu(false);
   };
@@ -515,29 +517,31 @@ export default function App() {
     const content = editor ? editor.innerHTML : generatedCoverLetter;
 
     if (!content || content.trim() === '' || content === '<p><br></p>') {
-      alert("No content found to download.");
+      showToast("No content found to download.", 'error');
       return;
     }
 
+    // Quill sanitizes content — script tags and event handlers are stripped
     const pureHtmlString = `
       <div style="font-family: 'Times New Roman', serif; font-size: 12pt; color: black; line-height: 1.5; padding: 40px; background: white;">
         ${content.replace(/<p>/g, '<p style="margin-bottom: 12pt; margin-top: 0;">')}
       </div>
     `;
 
-    const opt: any = {
-      margin:       [0.5, 0.5, 0.5, 0.5], // Top, Left, Bottom, Right
+    const opt = {
+      margin:       [0.5, 0.5, 0.5, 0.5],
       filename:     `${coverLetterUserName}_Cover_Letter.pdf`,
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, logging: false, letterRendering: true },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' as const }
     };
-    
+
     html2pdf().set(opt).from(pureHtmlString).save().then(() => {
       setShowCoverLetterDownloadMenu(false);
+      showToast('Cover letter PDF downloaded!', 'success');
     }).catch((e: Error) => {
       console.error("PDF generation failed:", e);
-      alert("PDF generation failed. Please try downloading as Word or TXT.");
+      showToast("PDF generation failed. Try Word or TXT format.", 'error');
     });
   };
 
@@ -545,63 +549,86 @@ export default function App() {
     const element = document.getElementById('cv-document');
     const wrapper = document.getElementById('cv-document-wrapper');
     if (!element) return;
-    
+
     const originalButtonText = document.getElementById('btn-download-pdf-text');
     if (originalButtonText) originalButtonText.innerText = 'Generating PDF...';
 
     // Scroll wrapper to top to ensure complete capture bounds
     if (wrapper) wrapper.scrollTop = 0;
-    
-    // Give a small delay in case there are lazy images or CSS transitions resolving
-    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Save original inline styles so we can restore after capture
+    const origStyle = element.getAttribute('style') || '';
+
+    // Force the element to A4 size with NO transforms for accurate capture
+    // html2canvas cannot handle CSS transforms (scale/rotate) — they corrupt the output
+    element.style.transform = 'none';
+    element.style.width = '210mm';
+    element.style.height = '297mm';
+    element.style.margin = '0';
+    element.style.boxShadow = 'none';
+    element.style.borderRadius = '0';
+    element.style.position = 'absolute';
+    element.style.left = '0';
+    element.style.top = '0';
+    element.style.zIndex = '99999';
+    element.style.overflow = 'visible';
+
+    // Give browser a frame to repaint with new styles
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
-      // Use standard A4 options for more reliable generation
-      const opt: any = {
+      const opt = {
         margin:       0,
         filename:     `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
+        html2canvas:  {
+          scale: 2,
+          useCORS: true,
           logging: false,
           letterRendering: true,
+          width: 794,   // A4 width at 96dpi
+          height: 1123, // A4 height at 96dpi
           onclone: (clonedDoc: Document) => {
             const clonedElement = clonedDoc.getElementById('cv-document');
             if (clonedElement) {
-              // Reset any transforms that could offset the canvas capture
               clonedElement.style.transform = 'none';
+              clonedElement.style.width = '794px';
+              clonedElement.style.height = '1123px';
               clonedElement.style.margin = '0';
               clonedElement.style.boxShadow = 'none';
-              clonedElement.style.left = '0';
-              clonedElement.style.top = '0';
-              
-              // Unclip parent containers to ensure full view
+              clonedElement.style.borderRadius = '0';
+              clonedElement.style.position = 'relative';
+              clonedElement.style.overflow = 'hidden';
+
+              // Unclip all ancestor containers
               let parent = clonedElement.parentElement;
               let depth = 0;
-              while (parent && depth < 20) { // Limit depth to avoid infinite loops if any
+              while (parent && depth < 20) {
                 parent.style.overflow = 'visible';
                 parent.style.transform = 'none';
+                parent.style.position = 'static';
                 parent = parent.parentElement;
                 depth++;
               }
             }
           }
         },
-        jsPDF:        { 
-          unit: 'mm', 
-          format: 'a4', 
-          orientation: 'portrait'
+        jsPDF:        {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait' as const
         }
       };
-      
-      console.log('[PDF] Starting generation...');
+
       await html2pdf().set(opt).from(element).save();
-      console.log('[PDF] Generation successful.');
-    } catch (err: any) {
+      showToast('PDF downloaded successfully!', 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('PDF generation error:', err);
-      alert(`PDF generation failed: ${err.message || 'Unknown error'}. Please try downloading as Word or TXT instead.`);
+      showToast(`PDF generation failed: ${message}`, 'error');
     } finally {
+      // Restore original styles
+      element.setAttribute('style', origStyle);
       if (originalButtonText) originalButtonText.innerText = 'Download PDF';
       setShowCvDownloadMenu(false);
     }
@@ -614,61 +641,70 @@ export default function App() {
     const originalButtonText = document.getElementById('btn-download-word-text');
     if (originalButtonText) originalButtonText.innerText = 'Generating Word...';
 
-    // To ensure the Word template matches the specific visual design of the edited template,
-    // we must inline computed styles. HTML-to-DOCX uses inline styles since MS Word doesn't 
-    // recognize utility classes like Tailwind's "text-xl font-bold".
     try {
       const clone = element.cloneNode(true) as HTMLElement;
-      
+
+      // Inline computed styles so Word can render them (it ignores Tailwind classes)
       const applyComputedStyles = (source: Element, target: HTMLElement) => {
+        if (!(target instanceof HTMLElement)) return;
         const computed = window.getComputedStyle(source);
-        // Important properties for DOCX visual fidelity
         const stylesToCopy = [
           'color', 'fontSize', 'fontWeight', 'fontStyle', 'fontFamily',
           'textAlign', 'backgroundColor', 'border', 'padding', 'margin',
-          'textDecoration', 'textTransform', 'lineHeight'
+          'textDecoration', 'textTransform', 'lineHeight', 'display',
+          'width', 'maxWidth'
         ];
-        
+
         stylesToCopy.forEach(prop => {
-          target.style[prop as any] = computed[prop as any];
+          const value = computed.getPropertyValue(
+            prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase())
+          );
+          if (value && value !== 'initial' && value !== 'normal') {
+            target.style.setProperty(
+              prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+              value
+            );
+          }
         });
 
-        // HTML-to-DOCX sometimes handles lists better if they have basic margins
         if (target.tagName === 'UL') target.style.paddingLeft = '20px';
         if (target.tagName === 'LI') target.style.marginBottom = '5px';
 
-        for (let i = 0; i < source.children.length; i++) {
-          applyComputedStyles(source.children[i], target.children[i] as HTMLElement);
+        const sourceChildren = Array.from(source.children);
+        const targetChildren = Array.from(target.children);
+        for (let i = 0; i < sourceChildren.length && i < targetChildren.length; i++) {
+          applyComputedStyles(sourceChildren[i], targetChildren[i] as HTMLElement);
         }
       };
 
-      // Apply all live CSS to the isolated clone inline
       applyComputedStyles(element, clone);
 
-      const htmlString = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <title>${cvData.fullName} CV</title>
-          </head>
-          <body style="font-family: Arial, sans-serif;">
-            ${clone.outerHTML}
-          </body>
-        </html>
-      `;
+      // Remove images for cleaner DOCX (they don't export well via html-docx)
+      clone.querySelectorAll('img').forEach(img => {
+        const alt = img.getAttribute('alt') || '';
+        const placeholder = document.createElement('span');
+        placeholder.textContent = alt ? `[${alt}]` : '';
+        img.replaceWith(placeholder);
+      });
 
-      // Convert HTML string with perfectly preserved inline styles into DOCX Blob.
-      // Convert HTML string with perfectly preserved inline styles into DOCX Blob.
-      console.log('[Word] Generating blob...');
+      // Strip transform/animation styles that confuse Word
+      clone.style.transform = 'none';
+      clone.style.width = '100%';
+
+      const safeFullName = cvData.fullName.replace(/[<>"'&]/g, '');
+      const htmlString = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${safeFullName} CV</title></head>
+<body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+${clone.outerHTML}
+</body></html>`;
+
       const docxData = await asBlob(htmlString);
-      console.log('[Word] Generation successful, saving...');
-      // Save as .doc instead of .docx to prevent modern Word from opening it as plain text
       saveAs(docxData as Blob, `${cvData.fullName.replace(/\s+/g, '_')}_CV.doc`);
-      
-    } catch (error: any) {
+      showToast('Word document downloaded successfully!', 'success');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Error generating Word DOCX:', error);
-      alert(`Word generation failed: ${error.message || 'Unknown error'}. Ensure your browser supports this operation or try downloading as PDF.`);
+      showToast(`Word generation failed: ${message}`, 'error');
     } finally {
       if (originalButtonText) originalButtonText.innerText = 'Download Word';
       setShowCvDownloadMenu(false);

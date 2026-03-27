@@ -219,7 +219,7 @@ ${nameMatch}`;
 
 
 export async function humanizeText(text: string): Promise<string> {
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-2.0-flash";
   const systemInstruction = `
     You are an expert career coach and editor. 
     Your task is to rewrite robotic, LLM-generated CV bullet points into natural, human-sounding content.
@@ -262,7 +262,7 @@ export async function humanizeText(text: string): Promise<string> {
 }
 
 export async function tailorResume(resumeText: string, jobDescription: string): Promise<string> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-2.0-flash";
   const systemInstruction = `You are an elite career strategist. Your task is to rewrite a candidate's resume to perfectly align with a specific job description.
 
 RULES:
@@ -294,7 +294,7 @@ RULES:
 }
 
 export async function generateSummary(resumeText: string, jobDescription: string): Promise<string> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-2.0-flash";
   const systemInstruction = `Generate a punchy, 3-sentence professional summary for a resume based on the candidate's experience and a specific job description. Focus on unique value propositions.`;
 
   try {
@@ -314,7 +314,7 @@ export async function generateSummary(resumeText: string, jobDescription: string
 }
 
 export async function extractSkills(resumeText: string): Promise<string[]> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-2.0-flash";
   const systemInstruction = `Extract a list of top 10 technical and soft skills from the following resume. Return ONLY a comma-separated list.`;
 
   try {
@@ -334,7 +334,7 @@ export async function extractSkills(resumeText: string): Promise<string[]> {
 }
 
 export async function highlightStrengths(resumeText: string): Promise<string[]> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-2.0-flash";
   const systemInstruction = `Identify the top 3 core strengths/competitive advantages of this candidate based on their resume. Return each strength as a short, punchy sentence. Return as a JSON array of strings.`;
 
   try {
