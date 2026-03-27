@@ -19,6 +19,7 @@ import mammoth from 'mammoth/mammoth.browser.js';
 import { CVTemplates, TEMPLATE_LIST } from './components/CVTemplates';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from './utils/imageCrop';
+import { Home as HomeView } from './components/Home';
 
 // PDF.js worker is already set up above.
 
@@ -31,7 +32,7 @@ interface BulletPoint {
 export default function App() {
   const [bullets, setBullets] = useState<BulletPoint[]>([]);
   const [savedBullets, setSavedBullets] = useState<BulletPoint[]>([]);
-  const [view, setView] = useState<'cover-letter' | 'resume' | 'ats-check' | 'profile'>('resume');
+  const [view, setView] = useState<'home' | 'cover-letter' | 'resume' | 'ats-check' | 'profile'>('home');
   const [selectedApp, setSelectedApp] = useState<any>(null);
   const [atsResult, setAtsResult] = useState<any>(null);
   const [realTimeScore, setRealTimeScore] = useState<number>(0);
@@ -542,37 +543,65 @@ export default function App() {
 
   const downloadCVPDF = async () => {
     const element = document.getElementById('cv-document');
+    const wrapper = document.getElementById('cv-document-wrapper');
     if (!element) return;
     
-    // Show a loading state to the user
     const originalButtonText = document.getElementById('btn-download-pdf-text');
     if (originalButtonText) originalButtonText.innerText = 'Generating PDF...';
 
-    // Store original inline styles because html2canvas fails on transformed elements
-    const originalTransform = element.style.transform;
-    const originalTransition = element.style.transition;
+    // Scroll wrapper to top to ensure complete capture bounds
+    if (wrapper) wrapper.scrollTop = 0;
     
-    // Remove scaling temporarily for perfect capture
-    element.style.transform = 'none';
-    element.style.transition = 'none';
-    
-    const opt: any = {
-      margin:       0,
-      filename:     `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
-      image:        { type: 'jpeg', quality: 1 },
-      html2canvas:  { scale: 2, useCORS: true, logging: false },
-      jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
-    };
-    
+    // Give a small delay in case there are lazy images or CSS transitions resolving
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     try {
+      // Use standard A4 options for more reliable generation
+      const opt: any = {
+        margin:       0,
+        filename:     `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          logging: false,
+          letterRendering: true,
+          onclone: (clonedDoc: Document) => {
+            const clonedElement = clonedDoc.getElementById('cv-document');
+            if (clonedElement) {
+              // Reset any transforms that could offset the canvas capture
+              clonedElement.style.transform = 'none';
+              clonedElement.style.margin = '0';
+              clonedElement.style.boxShadow = 'none';
+              clonedElement.style.left = '0';
+              clonedElement.style.top = '0';
+              
+              // Unclip parent containers to ensure full view
+              let parent = clonedElement.parentElement;
+              let depth = 0;
+              while (parent && depth < 20) { // Limit depth to avoid infinite loops if any
+                parent.style.overflow = 'visible';
+                parent.style.transform = 'none';
+                parent = parent.parentElement;
+                depth++;
+              }
+            }
+          }
+        },
+        jsPDF:        { 
+          unit: 'mm', 
+          format: 'a4', 
+          orientation: 'portrait'
+        }
+      };
+      
+      console.log('[PDF] Starting generation...');
       await html2pdf().set(opt).from(element).save();
-    } catch (err) {
-      console.error('PDF generation failed:', err);
-      alert('PDF generation failed. Please try downloading as Word.');
+      console.log('[PDF] Generation successful.');
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      alert(`PDF generation failed: ${err.message || 'Unknown error'}. Please try downloading as Word or TXT instead.`);
     } finally {
-      // Restore original styles
-      element.style.transform = originalTransform;
-      element.style.transition = originalTransition;
       if (originalButtonText) originalButtonText.innerText = 'Download PDF';
       setShowCvDownloadMenu(false);
     }
@@ -585,66 +614,61 @@ export default function App() {
     const originalButtonText = document.getElementById('btn-download-word-text');
     if (originalButtonText) originalButtonText.innerText = 'Generating Word...';
 
+    // To ensure the Word template matches the specific visual design of the edited template,
+    // we must inline computed styles. HTML-to-DOCX uses inline styles since MS Word doesn't 
+    // recognize utility classes like Tailwind's "text-xl font-bold".
     try {
-      // Since html-docx-js doesn't parse complex CSS, we provide a clean semantic fallback structure.
-      const rawTextContent = element.innerText;
+      const clone = element.cloneNode(true) as HTMLElement;
       
-      const htmlString = `<!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset='utf-8'>
-          <title>${cvData.fullName} - CV</title>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            h1, h2, h3 { color: #111; }
-            h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
-            .section { margin-top: 30px; margin-bottom: 15px; border-bottom: 1px solid #ccc; font-size: 18px; font-weight: bold; }
-            .item-title { font-weight: bold; margin-top: 15px; }
-            .item-meta { color: #666; font-style: italic; margin-bottom: 5px; }
-            ul { margin-top: 5px; margin-bottom: 15px; }
-          </style>
-        </head>
-        <body>
-          <h1>${cvData.fullName}</h1>
-          <h3>${cvData.jobTitle}</h3>
-          <p>${cvData.email} | ${cvData.phone} | ${cvData.location}</p>
-          
-          <div class="section">Professional Summary</div>
-          <p>${cvData.summary}</p>
-          
-          <div class="section">Experience</div>
-          ${cvData.experience.map(exp => `
-            <div class="item-title">${exp.role} at ${exp.company}</div>
-            <div class="item-meta">${exp.periodStart} - ${exp.periodEnd}</div>
-            <ul>
-              ${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}
-            </ul>
-          `).join('')}
-          
-          <div class="section">Education</div>
-          ${cvData.education.map(edu => `
-            <div class="item-title">${edu.degree}</div>
-            <div class="item-meta">${edu.school} | ${edu.year}</div>
-          `).join('')}
-          
-          <div class="section">Skills</div>
-          <p>${cvData.skills.join(', ')}</p>
-          
-          ${cvData.projects.length > 0 ? `
-          <div class="section">Projects</div>
-          ${cvData.projects.map(proj => `
-            <div class="item-title">${proj.name}</div>
-            <p>${proj.description}</p>
-          `).join('')}
-          ` : ''}
-        </body>
-        </html>`;
+      const applyComputedStyles = (source: Element, target: HTMLElement) => {
+        const computed = window.getComputedStyle(source);
+        // Important properties for DOCX visual fidelity
+        const stylesToCopy = [
+          'color', 'fontSize', 'fontWeight', 'fontStyle', 'fontFamily',
+          'textAlign', 'backgroundColor', 'border', 'padding', 'margin',
+          'textDecoration', 'textTransform', 'lineHeight'
+        ];
+        
+        stylesToCopy.forEach(prop => {
+          target.style[prop as any] = computed[prop as any];
+        });
 
-      const blob = await asBlob(htmlString);
-      saveAs(blob as Blob, `${cvData.fullName.replace(/\s+/g, '_')}_CV.docx`);
-    } catch (error) {
-      console.error('Error generating DOCX:', error);
-      alert('Word generation failed. Please try downloading as PDF.');
+        // HTML-to-DOCX sometimes handles lists better if they have basic margins
+        if (target.tagName === 'UL') target.style.paddingLeft = '20px';
+        if (target.tagName === 'LI') target.style.marginBottom = '5px';
+
+        for (let i = 0; i < source.children.length; i++) {
+          applyComputedStyles(source.children[i], target.children[i] as HTMLElement);
+        }
+      };
+
+      // Apply all live CSS to the isolated clone inline
+      applyComputedStyles(element, clone);
+
+      const htmlString = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>${cvData.fullName} CV</title>
+          </head>
+          <body style="font-family: Arial, sans-serif;">
+            ${clone.outerHTML}
+          </body>
+        </html>
+      `;
+
+      // Convert HTML string with perfectly preserved inline styles into DOCX Blob.
+      // Convert HTML string with perfectly preserved inline styles into DOCX Blob.
+      console.log('[Word] Generating blob...');
+      const docxData = await asBlob(htmlString);
+      console.log('[Word] Generation successful, saving...');
+      // Save as .doc instead of .docx to prevent modern Word from opening it as plain text
+      saveAs(docxData as Blob, `${cvData.fullName.replace(/\s+/g, '_')}_CV.doc`);
+      
+    } catch (error: any) {
+      console.error('Error generating Word DOCX:', error);
+      alert(`Word generation failed: ${error.message || 'Unknown error'}. Ensure your browser supports this operation or try downloading as PDF.`);
     } finally {
       if (originalButtonText) originalButtonText.innerText = 'Download Word';
       setShowCvDownloadMenu(false);
@@ -677,50 +701,50 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans selection:bg-indigo-100">
+    <div className="min-h-screen bg-dark-slate text-on-surface font-body selection:bg-neon-blue selection:text-black">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-zinc-200 z-50 flex items-center justify-between px-6">
+      <nav className="fixed top-0 left-0 right-0 h-16 bg-dark-slate/60 backdrop-blur-xl border-b border-white/5 z-50 flex items-center justify-between px-6">
         <button 
-          onClick={() => setView('resume')}
-          className="group flex items-center gap-2 px-1 rounded-xl transition-all duration-300 transform active:scale-95"
+          onClick={() => setView('home')}
+          className="group flex items-center gap-2 px-1 rounded-xl transition-all duration-300 transform active:scale-95 cursor-pointer"
         >
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100 group-hover:shadow-indigo-200 group-hover:scale-105 transition-all">
+          <div className="w-10 h-10 bg-gradient-to-br from-neon-blue to-neon-purple rounded-xl flex items-center justify-center text-black shadow-[0_0_15px_rgba(0,243,255,0.4)] group-hover:shadow-[0_0_25px_rgba(0,243,255,0.6)] group-hover:scale-105 transition-all">
             <Sparkles size={22} className="group-hover:rotate-12 transition-transform" />
           </div>
           <div className="flex flex-col items-start leading-tight">
-            <span className="font-black text-xl tracking-tighter text-zinc-900 group-hover:text-indigo-600 transition-colors">CareerSwipe</span>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Home</span>
+            <span className="font-headline font-black text-xl tracking-tighter text-white group-hover:text-neon-blue transition-colors">CareerSwipe</span>
+            <span className="text-[10px] font-bold text-neon-blue/60 uppercase tracking-[0.2em] group-hover:text-neon-blue transition-colors">Home</span>
           </div>
         </button>
-        <div className="flex gap-1.5 p-1.5 bg-zinc-100/50 rounded-2xl border border-zinc-200/50 backdrop-blur-sm">
+        <div className="flex gap-1.5 p-1.5 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-md">
           <button 
             onClick={() => setView('resume')}
-            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 ${view === 'resume' ? 'bg-white text-indigo-600 shadow-sm border border-zinc-200' : 'text-zinc-500 hover:text-zinc-900 hover:bg-white/50'}`}
+            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 cursor-pointer ${view === 'resume' ? 'bg-neon-blue text-black shadow-[0_0_15px_rgba(0,243,255,0.4)]' : 'text-on-surface-variant hover:text-white hover:bg-white/10'}`}
           >
             <FileText size={18} />
-            <span>Resume</span>
+            <span className="hidden sm:inline">Resume</span>
           </button>
           <button 
             onClick={() => setView('cover-letter')}
-            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 ${view === 'cover-letter' ? 'bg-white text-indigo-600 shadow-sm border border-zinc-200' : 'text-zinc-500 hover:text-zinc-900 hover:bg-white/50'}`}
+            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 cursor-pointer ${view === 'cover-letter' ? 'bg-neon-blue text-black shadow-[0_0_15px_rgba(0,243,255,0.4)]' : 'text-on-surface-variant hover:text-white hover:bg-white/10'}`}
           >
             <FileText size={18} />
-            <span>Cover Letter</span>
+            <span className="hidden sm:inline">Cover Letter</span>
           </button>
           <button 
             onClick={() => setView('ats-check')}
-            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 ${view === 'ats-check' ? 'bg-white text-indigo-600 shadow-sm border border-zinc-200' : 'text-zinc-500 hover:text-zinc-900 hover:bg-white/50'}`}
+            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 cursor-pointer ${view === 'ats-check' ? 'bg-neon-blue text-black shadow-[0_0_15px_rgba(0,243,255,0.4)]' : 'text-on-surface-variant hover:text-white hover:bg-white/10'}`}
           >
             <Sparkles size={18} />
-            <span>ATS Check</span>
+            <span className="hidden sm:inline">ATS Check</span>
           </button>
-          <div className="w-[1px] h-4 bg-zinc-300 self-center mx-1" />
+          <div className="w-[1px] h-4 bg-white/10 self-center mx-1" />
           <button 
             onClick={() => setView('profile')}
-            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 ${view === 'profile' ? 'bg-white text-indigo-600 shadow-sm border border-zinc-200' : 'text-zinc-500 hover:text-zinc-900 hover:bg-white/50'}`}
+            className={`px-4 py-2.5 rounded-xl transition-all duration-300 text-sm font-bold flex items-center gap-2 cursor-pointer ${view === 'profile' ? 'bg-neon-blue text-black shadow-[0_0_15px_rgba(0,243,255,0.4)]' : 'text-on-surface-variant hover:text-white hover:bg-white/10'}`}
           >
             <User size={18} />
-            <span>Profile</span>
+            <span className="hidden sm:inline">Profile</span>
           </button>
         </div>
       </nav>
@@ -834,6 +858,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {view === 'home' ? (
+        <HomeView onBuildCV={() => setView('resume')} />
+      ) : (
       <main className={`pt-24 pb-12 px-6 mx-auto h-[calc(100vh-4rem)] flex flex-col ${view === 'ats-check' ? 'max-w-7xl' : view === 'cover-letter' || view === 'profile' ? 'max-w-4xl' : 'max-w-lg'}`}>
         {view === 'profile' ? (
           <motion.div 
@@ -858,9 +885,18 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex-1 flex flex-col justify-center"
+            className="fixed inset-0 top-16 bg-dot-pattern flex flex-col z-40 overflow-y-auto custom-scrollbar"
           >
-            <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Ambient animated background elements */}
+            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-300/20 rounded-full blur-[100px] pointer-events-none animate-pulse"></div>
+            <div className="absolute bottom-[-10%] right-[-5%] w-[60%] h-[60%] bg-blue-300/20 rounded-full blur-[120px] pointer-events-none" style={{ animation: 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}></div>
+            
+            <div className="w-full max-w-7xl mx-auto px-6 md:px-12 py-12 relative z-10 flex flex-col justify-center min-h-[calc(100vh-8rem)]">
+              <div className="glass-card bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_8px_32px_rgba(0,0,0,0.04)] w-full p-8 md:p-12 border border-white/60 relative overflow-hidden">
+                {/* Inner ambient glow for glass effect */}
+                <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-100/50 rounded-full blur-[80px] pointer-events-none"></div>
+                
+                <div className="grid lg:grid-cols-2 gap-16 items-center relative z-10">
               {/* Left Side: Content & Upload */}
               <div className="space-y-8">
                 <div>
@@ -1215,25 +1251,30 @@ export default function App() {
                 </div>
               </motion.div>
             )}
+              </div>
+            </div>
           </motion.div>
         ) : view === 'cover-letter' ? (
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex-1 overflow-y-auto pr-2 flex flex-col items-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 top-16 bg-dot-pattern flex flex-col z-40 overflow-y-auto custom-scrollbar"
           >
+            {/* Ambient animated background elements */}
+            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-300/20 rounded-full blur-[100px] pointer-events-none animate-pulse"></div>
+            <div className="absolute bottom-[-10%] right-[-5%] w-[60%] h-[60%] bg-blue-300/20 rounded-full blur-[120px] pointer-events-none" style={{ animation: 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}></div>
+            
+            <div className="w-full max-w-4xl mx-auto px-6 md:px-12 py-12 relative z-10 flex flex-col items-center">
             {/* Header */}
-            <div className="text-center mb-8">
-              <div className="text-indigo-600 text-xs font-bold uppercase tracking-wider mb-2">Generate as many cover letters as you need</div>
-              <div className="flex items-center justify-center gap-2 text-sm text-zinc-600">
-                <Home size={16} />
-                <span>&gt;</span>
-                <span>Cover Letter Generator</span>
-              </div>
+            <div className="mb-12 text-center w-full">
+               <h1 className="text-4xl font-display font-black text-slate-900 tracking-tight mb-2">Cover Letter Generator</h1>
+               <p className="text-slate-500 font-medium">Generate as many cover letters as you need</p>
             </div>
 
             {/* Main Card */}
-            <div className="bg-white rounded-[2rem] shadow-xl w-full p-8 md:p-12 border border-zinc-100">
+            <div className="glass-card bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_8px_32px_rgba(0,0,0,0.04)] w-full p-8 md:p-12 border border-white/60 relative overflow-hidden">
+               {/* Inner ambient glow for glass effect */}
+               <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-100/50 rounded-full blur-[80px] pointer-events-none"></div>
               {/* Step Indicator */}
               <div className="flex items-center justify-center mb-12">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${coverLetterStep >= 1 ? 'bg-[#20b2aa]' : 'bg-zinc-200 text-zinc-500'}`}>
@@ -1432,6 +1473,7 @@ export default function App() {
                   </div>
                 </motion.div>
               )}
+            </div>
             </div>
           </motion.div>
         ) : cvBuilderStep === 'select-template' ? (
@@ -2149,6 +2191,7 @@ export default function App() {
           </motion.div>
         )}
       </main>
+      )}
 
       {/* Toast Notification */}
       <AnimatePresence>
