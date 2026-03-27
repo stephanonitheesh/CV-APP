@@ -3351,9 +3351,9 @@ export const CVTemplates: React.FC<CVTemplatesProps> = ({ templateId, data }) =>
                   {data.jobTitle}
                 </div>
                 <div className="flex gap-6 text-sm font-medium text-[#71717a]">
-                  <p className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[#f43f5e]"></div> {data.email}</p>
-                  <p className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[#8b5cf6]"></div> {data.phone}</p>
-                  <p className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[#10b981]"></div> {data.location}</p>
+                  <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#f43f5e] inline-block"></span> {data.email}</span>
+                  <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#8b5cf6] inline-block"></span> {data.phone}</span>
+                  <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#10b981] inline-block"></span> {data.location}</span>
                 </div>
               </div>
             </header>
