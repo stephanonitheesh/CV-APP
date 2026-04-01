@@ -13,7 +13,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import html2pdf from 'html2pdf.js';
-import { asBlob } from 'html-docx-js-typescript';
+import html2canvas from 'html2canvas';
 import { saveAs } from 'file-saver';
 import mammoth from 'mammoth/mammoth.browser.js';
 import { CVTemplates, TEMPLATE_LIST } from './components/CVTemplates';
@@ -156,54 +156,69 @@ export default function App() {
     }, 1200);
   };
 
-  const handlePrint = () => {
-    const style = document.createElement('style');
-    style.id = 'cv-print-style';
-    style.innerHTML = `
-      @media print {
-        /* Hide everything first */
-        body * {
-          visibility: hidden !important;
-        }
-        /* Reset body for clean print */
-        body {
-          background: white !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          overflow: visible !important;
-        }
-        /* Make #cv-document and ALL its ancestors visible and positioned correctly */
-        #cv-document,
-        #cv-document * {
-          visibility: visible !important;
-        }
-        #cv-document {
-          position: fixed !important;
-          left: 0 !important;
-          top: 0 !important;
-          width: 210mm !important;
-          height: 297mm !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          box-shadow: none !important;
-          transform: none !important;
-          border: none !important;
-          border-radius: 0 !important;
-          overflow: visible !important;
-          z-index: 99999 !important;
-          aspect-ratio: auto !important;
-          max-width: none !important;
-        }
-        /* Ensure ancestor containers don't clip */
-        #cv-document-wrapper,
-        #cv-document-wrapper * {
-          overflow: visible !important;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-    window.print();
-    setTimeout(() => document.head.removeChild(style), 1000);
+  const handlePrint = async () => {
+    const cvEl = document.getElementById('cv-document');
+    if (!cvEl) return;
+
+    // Collect all <link rel="stylesheet"> hrefs
+    const linkHrefs = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map(l => (l as HTMLLinkElement).href)
+      .filter(Boolean);
+
+    // Collect all <style> tag contents
+    const inlineStyles = Array.from(document.querySelectorAll('style'))
+      .map(s => s.textContent || '')
+      .join('\n');
+
+    // Clone the CV element
+    const clone = cvEl.cloneNode(true) as HTMLElement;
+    clone.style.transform = 'none';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+    clone.style.margin = '0 auto';
+    clone.style.width = '850px';
+
+    const linkTags = linkHrefs.map(h => `<link rel="stylesheet" href="${h}">`).join('\n');
+
+    const popup = window.open('', '_blank', 'width=900,height=1100');
+    if (!popup) {
+      showToast('Could not open print window — check popup blocker', 'error');
+      return;
+    }
+
+    popup.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+${linkTags}
+<style>
+${inlineStyles}
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { size: A4 portrait; margin: 0; }
+  body { margin: 0; padding: 0; background: white; }
+  #cv-root { width: 210mm; margin: 0 auto; }
+}
+body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-content: center; padding: 20px 0; }
+#cv-root { background: white; width: 850px; }
+</style>
+</head>
+<body>
+<div id="cv-root">${clone.outerHTML}</div>
+</body>
+</html>`);
+
+    popup.document.close();
+
+    // Wait for all resources (fonts, images) to load before printing
+    popup.onload = async () => {
+      await popup.document.fonts.ready;
+      setTimeout(() => {
+        popup.focus();
+        popup.print();
+        setTimeout(() => popup.close(), 2000);
+      }, 600);
+    };
   };
 
   const cycleSection = (e: React.KeyboardEvent | KeyboardEvent) => {
@@ -546,168 +561,176 @@ export default function App() {
   };
 
   const downloadCVPDF = async () => {
-    const element = document.getElementById('cv-document');
-    const wrapper = document.getElementById('cv-document-wrapper');
-    if (!element) return;
+    const cvEl = document.getElementById('cv-document');
+    if (!cvEl) return;
 
-    const originalButtonText = document.getElementById('btn-download-pdf-text');
-    if (originalButtonText) originalButtonText.innerText = 'Generating PDF...';
+    const btnText = document.getElementById('btn-download-pdf-text');
+    if (btnText) btnText.innerText = 'Generating...';
+    setShowCvDownloadMenu(false);
 
-    // Scroll wrapper to top to ensure complete capture bounds
-    if (wrapper) wrapper.scrollTop = 0;
-
-    // Save original inline styles so we can restore after capture
-    const origStyle = element.getAttribute('style') || '';
-
-    // Force the element to A4 size with NO transforms for accurate capture
-    // html2canvas cannot handle CSS transforms (scale/rotate) — they corrupt the output
-    element.style.transform = 'none';
-    element.style.width = '210mm';
-    element.style.height = '297mm';
-    element.style.margin = '0';
-    element.style.boxShadow = 'none';
-    element.style.borderRadius = '0';
-    element.style.position = 'absolute';
-    element.style.left = '0';
-    element.style.top = '0';
-    element.style.zIndex = '99999';
-    element.style.overflow = 'visible';
-
-    // Give browser a frame to repaint with new styles
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Off-screen container - isolated from any parent clips/transforms
+    const offScreen = document.createElement('div');
+    offScreen.style.cssText = [
+      'position:fixed',
+      'left:-10000px',
+      'top:0',
+      'width:850px',
+      'background:white',
+      'z-index:-9999',
+      'overflow:visible',
+      'pointer-events:none',
+    ].join(';');
+    document.body.appendChild(offScreen);
 
     try {
+      // Deep clone - strip Framer Motion attributes and all transforms
+      const clone = cvEl.cloneNode(true) as HTMLElement;
+      clone.removeAttribute('data-projection-id');
+      clone.removeAttribute('data-motion-id');
+      clone.style.cssText = [
+        'width:850px',
+        'min-height:1201px',
+        'transform:none',
+        'box-shadow:none',
+        'border-radius:0',
+        'position:relative',
+        'overflow:visible',
+        'margin:0',
+      ].join(';');
+      offScreen.appendChild(clone);
+
+      // Wait for fonts (Material Symbols, Google Fonts) and layout reflow
+      await document.fonts.ready;
+      await new Promise<void>(r => setTimeout(r, 400));
+
+      // Sanitise oklch() colors that html2canvas cannot parse.
+      // Walk every element, inline computed rgb values for color/background props.
+      const colorProps = ['color', 'background-color', 'border-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'outline-color'] as const;
+      clone.querySelectorAll('*').forEach(el => {
+        const cs = getComputedStyle(el);
+        const st = (el as HTMLElement).style;
+        for (const prop of colorProps) {
+          const val = cs.getPropertyValue(prop);
+          if (val && val.includes('oklch')) {
+            // getComputedStyle returns resolved rgb in most browsers; if it still
+            // contains oklch, replace with a fallback transparent
+            st.setProperty(prop, val.replace(/oklch\([^)]*\)/gi, 'transparent'));
+          }
+        }
+      });
+
       const opt = {
-        margin:       0,
-        filename:     `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  {
+        margin: 0,
+        filename: `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
           scale: 2,
           useCORS: true,
           logging: false,
           letterRendering: true,
-          width: 794,   // A4 width at 96dpi
-          height: 1123, // A4 height at 96dpi
-          onclone: (clonedDoc: Document) => {
-            const clonedElement = clonedDoc.getElementById('cv-document');
-            if (clonedElement) {
-              clonedElement.style.transform = 'none';
-              clonedElement.style.width = '794px';
-              clonedElement.style.height = '1123px';
-              clonedElement.style.margin = '0';
-              clonedElement.style.boxShadow = 'none';
-              clonedElement.style.borderRadius = '0';
-              clonedElement.style.position = 'relative';
-              clonedElement.style.overflow = 'hidden';
-
-              // Unclip all ancestor containers
-              let parent = clonedElement.parentElement;
-              let depth = 0;
-              while (parent && depth < 20) {
-                parent.style.overflow = 'visible';
-                parent.style.transform = 'none';
-                parent.style.position = 'static';
-                parent = parent.parentElement;
-                depth++;
-              }
-            }
-          }
+          width: 850,
+          windowWidth: 850,  // ← KEY: tells html2canvas the viewport is 850px so CSS Grid works
         },
-        jsPDF:        {
+        jsPDF: {
           unit: 'mm',
           format: 'a4',
-          orientation: 'portrait' as const
-        }
+          orientation: 'portrait' as const,
+          compress: true,
+        },
       };
 
-      await html2pdf().set(opt).from(element).save();
+      await html2pdf().set(opt).from(clone).save();
       showToast('PDF downloaded successfully!', 'success');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       console.error('PDF generation error:', err);
-      showToast(`PDF generation failed: ${message}`, 'error');
+      showToast(`PDF failed: ${msg}`, 'error');
     } finally {
-      // Restore original styles
-      element.setAttribute('style', origStyle);
-      if (originalButtonText) originalButtonText.innerText = 'Download PDF';
-      setShowCvDownloadMenu(false);
+      document.body.removeChild(offScreen);
+      if (btnText) btnText.innerText = 'Download PDF';
     }
   };
 
   const downloadCVDOCX = async () => {
-    const element = document.getElementById('cv-document');
-    if (!element) return;
+    const cvEl = document.getElementById('cv-document');
+    if (!cvEl) return;
 
-    const originalButtonText = document.getElementById('btn-download-word-text');
-    if (originalButtonText) originalButtonText.innerText = 'Generating Word...';
+    const btnText = document.getElementById('btn-download-word-text');
+    if (btnText) btnText.innerText = 'Generating...';
+    setShowCvDownloadMenu(false);
 
     try {
-      const clone = element.cloneNode(true) as HTMLElement;
+      // Render the CV exactly as it appears on screen using html2canvas
+      const offScreen = document.createElement('div');
+      offScreen.style.cssText = 'position:fixed;left:-10000px;top:0;width:850px;background:white;z-index:-9999;overflow:visible;pointer-events:none;';
+      document.body.appendChild(offScreen);
 
-      // Inline computed styles so Word can render them (it ignores Tailwind classes)
-      const applyComputedStyles = (source: Element, target: HTMLElement) => {
-        if (!(target instanceof HTMLElement)) return;
-        const computed = window.getComputedStyle(source);
-        const stylesToCopy = [
-          'color', 'fontSize', 'fontWeight', 'fontStyle', 'fontFamily',
-          'textAlign', 'backgroundColor', 'border', 'padding', 'margin',
-          'textDecoration', 'textTransform', 'lineHeight', 'display',
-          'width', 'maxWidth'
-        ];
+      const clone = cvEl.cloneNode(true) as HTMLElement;
+      clone.removeAttribute('data-projection-id');
+      clone.removeAttribute('data-motion-id');
+      clone.style.cssText = 'width:850px;min-height:1201px;transform:none;box-shadow:none;border-radius:0;position:relative;overflow:visible;margin:0;';
+      offScreen.appendChild(clone);
 
-        stylesToCopy.forEach(prop => {
-          const value = computed.getPropertyValue(
-            prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase())
-          );
-          if (value && value !== 'initial' && value !== 'normal') {
-            target.style.setProperty(
-              prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
-              value
-            );
-          }
-        });
+      await document.fonts.ready;
+      await new Promise<void>(r => setTimeout(r, 400));
 
-        if (target.tagName === 'UL') target.style.paddingLeft = '20px';
-        if (target.tagName === 'LI') target.style.marginBottom = '5px';
-
-        const sourceChildren = Array.from(source.children);
-        const targetChildren = Array.from(target.children);
-        for (let i = 0; i < sourceChildren.length && i < targetChildren.length; i++) {
-          applyComputedStyles(sourceChildren[i], targetChildren[i] as HTMLElement);
-        }
-      };
-
-      applyComputedStyles(element, clone);
-
-      // Remove images for cleaner DOCX (they don't export well via html-docx)
-      clone.querySelectorAll('img').forEach(img => {
-        const alt = img.getAttribute('alt') || '';
-        const placeholder = document.createElement('span');
-        placeholder.textContent = alt ? `[${alt}]` : '';
-        img.replaceWith(placeholder);
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        letterRendering: true,
+        width: 850,
+        windowWidth: 850,
       });
 
-      // Strip transform/animation styles that confuse Word
-      clone.style.transform = 'none';
-      clone.style.width = '100%';
+      document.body.removeChild(offScreen);
 
-      const safeFullName = cvData.fullName.replace(/[<>"'&]/g, '');
-      const htmlString = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${safeFullName} CV</title></head>
-<body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-${clone.outerHTML}
-</body></html>`;
+      // Convert canvas to base64 image
+      const imgDataUrl = canvas.toDataURL('image/png');
+      const imgWidthPx = canvas.width;
+      const imgHeightPx = canvas.height;
 
-      const docxData = await asBlob(htmlString);
-      saveAs(docxData as Blob, `${cvData.fullName.replace(/\s+/g, '_')}_CV.doc`);
-      showToast('Word document downloaded successfully!', 'success');
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Error generating Word DOCX:', error);
-      showToast(`Word generation failed: ${message}`, 'error');
+      // A4 page in Word: ~595pt wide (8.27in × 72). Scale image to fit A4 width.
+      const a4WidthPt = 595;
+      const scaledHeightPt = Math.round((imgHeightPx / imgWidthPx) * a4WidthPt);
+
+      const wordHtml = `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset='utf-8'>
+<title>${cvData.fullName.replace(/[<>&"]/g, '')} CV</title>
+<!--[if gte mso 9]>
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+    <w:DoNotOptimizeForBrowser/>
+  </w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+  @page { size: A4; margin: 0; }
+  body { margin: 0; padding: 0; }
+  .cv-page { page-break-after: always; }
+  img { display: block; }
+</style>
+</head>
+<body style="margin:0;padding:0;">
+<div class="cv-page">
+  <img src="${imgDataUrl}" width="${a4WidthPt}" height="${scaledHeightPt}" style="width:${a4WidthPt}pt;height:${scaledHeightPt}pt;display:block;" />
+</div>
+</body>
+</html>`;
+
+      const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
+      saveAs(blob, `${cvData.fullName.replace(/\s+/g, '_')}_CV.doc`);
+      showToast('Word document downloaded!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Word generation error:', err);
+      showToast(`Word failed: ${msg}`, 'error');
     } finally {
-      if (originalButtonText) originalButtonText.innerText = 'Download Word';
-      setShowCvDownloadMenu(false);
+      if (btnText) btnText.innerText = 'Download Word';
     }
   };
 
