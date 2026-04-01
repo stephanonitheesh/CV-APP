@@ -641,21 +641,103 @@ body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-conten
     setShowCvDownloadMenu(false);
 
     try {
-      // Template → primary colour mapping
-      const TEMPLATE_COLORS: Record<string, { primary: string; light: string; text: string }> = {
-        'modern':           { primary: '#4f46e5', light: '#eef2ff', text: '#1e293b' },
-        'professional':     { primary: '#1e293b', light: '#f8fafc', text: '#1e293b' },
-        'executive':        { primary: '#0f172a', light: '#f1f5f9', text: '#0f172a' },
-        'creative':         { primary: '#db2777', light: '#fdf2f8', text: '#1e293b' },
-        'bold-executive':   { primary: '#dc2626', light: '#fef2f2', text: '#1e293b' },
-        'editorial-bold':   { primary: '#e11d48', light: '#fff1f2', text: '#1e293b' },
-        'startup':          { primary: '#4f46e5', light: '#eef2ff', text: '#1e293b' },
-        'tech-dark':        { primary: '#06b6d4', light: '#ecfeff', text: '#0f172a' },
-        'minimal-serif':    { primary: '#334155', light: '#f8fafc', text: '#1e293b' },
-        'classic':          { primary: '#1e3a5f', light: '#eff6ff', text: '#1e293b' },
+      // Template config: colors + layout variant for each template
+      type TemplateConfig = {
+        primary: string; light: string; text: string; body: string;
+        headerBg: string; headerText: string; contactBg: string; contactText: string;
+        sidebarBg: string; sidebarText: string; bulletColor: string; dateColor: string;
+        layout: 'sidebar-right' | 'sidebar-left' | 'single-column';
+        font: string; darkMode?: boolean;
       };
 
-      const c = TEMPLATE_COLORS[selectedTemplate] ?? TEMPLATE_COLORS['modern'];
+      const base = (primary: string, light: string, text = '#1e293b'): TemplateConfig => ({
+        primary, light, text, body: '#ffffff',
+        headerBg: primary, headerText: '#ffffff', contactBg: light, contactText: text,
+        sidebarBg: light, sidebarText: text, bulletColor: '#374151', dateColor: '#64748b',
+        layout: 'sidebar-right', font: 'Arial, sans-serif',
+      });
+
+      const dark = (primary: string, bg: string, text: string): TemplateConfig => ({
+        primary, light: bg, text, body: bg,
+        headerBg: bg, headerText: text, contactBg: bg, contactText: text,
+        sidebarBg: bg, sidebarText: text, bulletColor: text, dateColor: primary,
+        layout: 'sidebar-right', font: "'Courier New', monospace", darkMode: true,
+      });
+
+      const TEMPLATES: Record<string, TemplateConfig> = {
+        // — Corporate / Professional —
+        'modern':               base('#4f46e5', '#eef2ff'),
+        'professional':         { ...base('#1e293b', '#f8fafc'), layout: 'single-column' },
+        'executive':            { ...base('#0f172a', '#f1f5f9', '#0f172a'), layout: 'sidebar-right' },
+        'corporate-sharp':      { ...base('#6366f1', '#eef2ff'), layout: 'sidebar-left' },
+        'platinum-executive':   { ...base('#c5a059', '#faf9f6', '#1a1c1e'), headerBg: '#1a1c1e', headerText: '#c5a059' },
+        'executive-suite':      { ...base('#334155', '#f1f5f9', '#0f172a'), layout: 'single-column' },
+        'finance-trust':        { ...base('#b89151', '#f8fafc', '#1e2a38'), layout: 'single-column', headerBg: '#1e2a38', headerText: '#b89151' },
+        'legal-counsel':        { ...base('#1e3a5f', '#f8fafc', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
+
+        // — Creative / Design —
+        'creative':             { ...base('#4f46e5', '#f8fafc', '#1e293b'), layout: 'sidebar-left', headerBg: '#0f172a' },
+        'artistic-flow':        { ...base('#fb7185', '#faf9f6', '#2c1810'), layout: 'single-column', font: "'Georgia', serif" },
+        'designer-portfolio':   { ...base('#f43f5e', '#faf9f6', '#1e293b'), layout: 'sidebar-left' },
+        'creative-director':    dark('#ffffff', '#1a1a1a', '#f4f4f4'),
+        'abstract-shapes':      { ...base('#3b82f6', '#f8fafc', '#1e293b'), layout: 'sidebar-left' },
+        'freelance-pop':        { ...base('#ff4b4b', '#fffbe6', '#1e293b'), layout: 'single-column', headerBg: '#ffe227', headerText: '#1e293b' },
+
+        // — Minimal —
+        'minimal-pure':         { ...base('#a1a1aa', '#ffffff', '#27272a'), layout: 'single-column', headerBg: '#ffffff', headerText: '#27272a' },
+        'ultra-minimal':        { ...base('#000000', '#ffffff', '#000000'), layout: 'single-column', headerBg: '#ffffff', headerText: '#000000' },
+        'swiss-clean':          { ...base('#0f172a', '#f8fafc'), layout: 'sidebar-left', headerBg: '#f8fafc', headerText: '#0f172a' },
+        'minimal-serif':        { ...base('#334155', '#f8fafc'), layout: 'single-column', font: "'Georgia', serif", headerBg: '#f8fafc', headerText: '#334155' },
+        'elegant-serif':        { ...base('#111111', '#f9f9f9', '#222222'), layout: 'sidebar-right', font: "'Georgia', serif", headerBg: '#f9f9f9', headerText: '#111111' },
+        'elegant-simple':       { ...base('#334155', '#f8fafc', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
+        'typo-pure':            { ...base('#4f46e5', '#ffffff', '#18181b'), layout: 'sidebar-right' },
+        'architecture-line':    { ...base('#000000', '#fbfbfb', '#1D1D1F'), layout: 'sidebar-left', headerBg: '#fbfbfb', headerText: '#1D1D1F' },
+        'copywriter-pro':       { ...base('#0f172a', '#fdfbf7', '#0f172a'), layout: 'single-column', font: "'Georgia', serif", headerBg: '#fdfbf7', headerText: '#0f172a' },
+        'minimalist-grid':      { ...base('#000000', '#ffffff', '#000000'), layout: 'single-column', headerBg: '#ffffff', headerText: '#000000' },
+
+        // — Tech / Engineering —
+        'tech-dark':            { ...dark('#6366f1', '#0f172a', '#e2e8f0'), layout: 'sidebar-left' },
+        'developer-terminal':   { ...dark('#3fb950', '#0d1117', '#c9d1d9'), layout: 'single-column', font: "'Courier New', monospace" },
+        'cyber-clean':          { ...dark('#00ff41', '#0a0a0a', '#ededed'), layout: 'sidebar-right' },
+        'cyber-neon':           { ...dark('#66fcf1', '#0b0c10', '#c5c6c7'), layout: 'sidebar-left' },
+        'engineering-blueprint': { ...dark('#71b4e1', '#0c182a', '#71b4e1'), layout: 'sidebar-right', font: "'Courier New', monospace" },
+        'ai-engineer':          { ...base('#18181b', '#fafafa', '#18181b'), layout: 'sidebar-left', font: "'Courier New', monospace" },
+        'app-developer':        base('#3b82f6', '#f8fafc'),
+        'tech-lead':            { ...base('#06b6d4', '#f0fdfa', '#0f172a'), layout: 'sidebar-right' },
+
+        // — Bold / Vibrant —
+        'neon-bold':            { ...dark('#06b6d4', '#18181b', '#ffffff'), layout: 'sidebar-right' },
+        'vibrant-gradient':     base('#c026d3', '#fdf4ff', '#1e293b'),
+        'glassmorphism-pro':    { ...dark('#818cf8', '#0f172a', '#ffffff'), layout: 'sidebar-right' },
+        'neo-brutalism':        { ...base('#ff5e5b', '#f7f2eb', '#111111'), layout: 'single-column', headerBg: '#ff5e5b', headerText: '#ffffff' },
+        'bold-executive':       base('#dc2626', '#fef2f2'),
+        'editorial-bold':       base('#e11d48', '#fff1f2'),
+        'pastel-dream':         { ...base('#6366f1', '#eef2ff', '#312e81'), headerBg: '#eef2ff', headerText: '#312e81', layout: 'sidebar-left' },
+        'portfolio-grid':       { ...base('#4f46e5', '#fafafa', '#18181b'), layout: 'single-column' },
+
+        // — Marketing / Sales —
+        'marketing-bold':       { ...base('#ff4e50', '#fff5f5', '#1e293b'), layout: 'sidebar-right' },
+        'sales-closer':         { ...base('#3498db', '#eff6ff', '#2c3e50'), layout: 'single-column' },
+        'brand-strategist':     { ...base('#d4af37', '#fdfaf6', '#333333'), layout: 'sidebar-left', headerBg: '#333333', headerText: '#d4af37' },
+        'marketing-playbook':   base('#e11d48', '#fff1f2'),
+
+        // — Startup / Product —
+        'startup':              base('#4f46e5', '#eef2ff'),
+        'startup-pitch':        base('#6c5ce7', '#f5f3ff'),
+        'startup-founder':      base('#4f46e5', '#eef2ff'),
+        'saas-builder':         base('#4f46e5', '#eef2ff'),
+        'product-manager':      { ...base('#059669', '#ecfdf5'), layout: 'sidebar-right' },
+        'data-storyteller':     { ...base('#0066cc', '#f0f7ff', '#1a1a1a'), layout: 'sidebar-left' },
+
+        // — Industry Specific —
+        'classic':              base('#1e3a5f', '#eff6ff'),
+        'culinary-artist':      { ...base('#b45309', '#fffbeb', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
+        'real-estate-pro':      { ...base('#b89151', '#faf9f6', '#1e293b'), layout: 'sidebar-right' },
+        'ocean-blue':           { ...base('#0369a1', '#f0f9ff', '#0c4a6e'), layout: 'single-column' },
+        'luxury-brand':         { ...base('#c5a059', '#faf9f6', '#1a1a1a'), layout: 'sidebar-left', headerBg: '#1a1a1a', headerText: '#c5a059', font: "'Georgia', serif" },
+      };
+
+      const t = TEMPLATES[selectedTemplate] ?? TEMPLATES['modern'];
 
       // Sanitise a string for safe HTML output
       const esc = (s: string) =>
@@ -665,47 +747,114 @@ body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-conten
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;');
 
-      // Build experience rows
+      // ── Reusable content builders ──
       const expRows = cvData.experience.map(exp => `
-        <tr>
-          <td style="padding:0 0 16px 0;">
-            <table style="width:100%;border-collapse:collapse;">
-              <tr>
-                <td style="width:70%;vertical-align:top;">
-                  <p style="margin:0;font-size:12pt;font-weight:bold;color:${c.text};">${esc(exp.role)}</p>
-                  <p style="margin:2px 0 0;font-size:11pt;color:${c.primary};font-weight:600;">${esc(exp.company)}</p>
-                </td>
-                <td style="width:30%;text-align:right;vertical-align:top;">
-                  <p style="margin:0;font-size:10pt;color:#64748b;">${esc(exp.periodStart)} – ${esc(exp.periodEnd)}</p>
-                </td>
-              </tr>
-            </table>
-            <ul style="margin:6px 0 0 0;padding-left:18px;">
-              ${(exp.bullets ?? []).map(b => `<li style="font-size:10.5pt;color:#374151;line-height:1.5;margin-bottom:4px;">${esc(b)}</li>`).join('')}
-            </ul>
-          </td>
-        </tr>`).join('');
+        <tr><td style="padding:0 0 16px 0;">
+          <table style="width:100%;border-collapse:collapse;"><tr>
+            <td style="width:70%;vertical-align:top;">
+              <p style="margin:0;font-size:12pt;font-weight:bold;color:${t.text};">${esc(exp.role)}</p>
+              <p style="margin:2px 0 0;font-size:11pt;color:${t.primary};font-weight:600;">${esc(exp.company)}</p>
+            </td>
+            <td style="width:30%;text-align:right;vertical-align:top;">
+              <p style="margin:0;font-size:10pt;color:${t.dateColor};">${esc(exp.periodStart)} – ${esc(exp.periodEnd)}</p>
+            </td>
+          </tr></table>
+          <ul style="margin:6px 0 0 0;padding-left:18px;">
+            ${(exp.bullets ?? []).map(b => `<li style="font-size:10.5pt;color:${t.bulletColor};line-height:1.5;margin-bottom:4px;">${esc(b)}</li>`).join('')}
+          </ul>
+        </td></tr>`).join('');
 
       const eduRows = cvData.education.map(edu => `
-        <tr>
-          <td style="padding:0 0 10px 0;">
-            <p style="margin:0;font-size:11pt;font-weight:bold;color:${c.text};">${esc(edu.degree)}</p>
-            <p style="margin:2px 0;font-size:10.5pt;color:${c.primary};">${esc(edu.school)}</p>
-            <p style="margin:0;font-size:10pt;color:#64748b;">${esc(edu.year)}</p>
-          </td>
-        </tr>`).join('');
+        <tr><td style="padding:0 0 10px 0;">
+          <p style="margin:0;font-size:11pt;font-weight:bold;color:${t.sidebarText};">${esc(edu.degree)}</p>
+          <p style="margin:2px 0;font-size:10.5pt;color:${t.primary};">${esc(edu.school)}</p>
+          <p style="margin:0;font-size:10pt;color:${t.dateColor};">${esc(edu.year)}</p>
+        </td></tr>`).join('');
 
       const skillTags = cvData.skills.map(s =>
-        `<span style="display:inline-block;background:${c.light};color:${c.primary};border:1px solid ${c.primary};padding:2px 8px;border-radius:4px;font-size:9.5pt;font-weight:600;margin:2px;">${esc(s)}</span>`
+        `<span style="display:inline-block;background:${t.darkMode ? t.primary : t.light};color:${t.darkMode ? t.body : t.primary};border:1px solid ${t.primary};padding:2px 8px;border-radius:4px;font-size:9.5pt;font-weight:600;margin:2px;">${esc(s)}</span>`
       ).join(' ');
 
       const projectRows = cvData.projects.map(p => `
-        <tr>
-          <td style="padding:0 0 10px 0;">
-            <p style="margin:0;font-size:11pt;font-weight:bold;color:${c.text};">${esc(p.name)}</p>
-            <p style="margin:2px 0 0;font-size:10.5pt;color:#374151;line-height:1.4;">${esc(p.description)}</p>
-          </td>
-        </tr>`).join('');
+        <tr><td style="padding:0 0 10px 0;">
+          <p style="margin:0;font-size:11pt;font-weight:bold;color:${t.text};">${esc(p.name)}</p>
+          <p style="margin:2px 0 0;font-size:10.5pt;color:${t.bulletColor};line-height:1.4;">${esc(p.description)}</p>
+        </td></tr>`).join('');
+
+      // ── Header HTML ──
+      const headerHtml = `
+<table style="width:100%;background-color:${t.headerBg};border-collapse:collapse;">
+  <tr><td style="padding:24px 32px;">
+    <p style="margin:0;font-size:28pt;font-weight:900;color:${t.headerText};letter-spacing:-0.5px;text-transform:uppercase;font-family:${t.font};">${esc(cvData.fullName)}</p>
+    <p style="margin:6px 0 0;font-size:14pt;color:${t.headerText};opacity:0.85;font-weight:600;">${esc(cvData.jobTitle)}</p>
+  </td></tr>
+</table>`;
+
+      // ── Contact bar HTML ──
+      const contactHtml = `
+<table style="width:100%;background-color:${t.contactBg};border-collapse:collapse;border-bottom:2px solid ${t.primary};">
+  <tr><td style="padding:10px 32px;">
+    <table style="border-collapse:collapse;"><tr>
+      <td style="padding-right:24px;font-size:10pt;color:${t.contactText};">&#9993; ${esc(cvData.email)}</td>
+      <td style="padding-right:24px;font-size:10pt;color:${t.contactText};">&#9742; ${esc(cvData.phone)}</td>
+      <td style="font-size:10pt;color:${t.contactText};">&#128205; ${esc(cvData.location)}</td>
+    </tr></table>
+  </td></tr>
+</table>`;
+
+      // ── Main content column HTML ──
+      const mainCol = `
+      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Professional Summary</h2>
+      <p style="font-size:10.5pt;color:${t.bulletColor};line-height:1.6;">${esc(cvData.summary)}</p>
+      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Experience</h2>
+      <table style="width:100%;border-collapse:collapse;">${expRows}</table>
+      ${cvData.projects.length > 0 ? `
+      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Key Projects</h2>
+      <table style="width:100%;border-collapse:collapse;">${projectRows}</table>` : ''}`;
+
+      // ── Sidebar column HTML ──
+      const sideCol = `
+      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Skills</h2>
+      <p style="line-height:1.8;">${skillTags}</p>
+      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Education</h2>
+      <table style="width:100%;border-collapse:collapse;">${eduRows}</table>`;
+
+      // ── Body layout based on template ──
+      let bodyHtml: string;
+      if (t.layout === 'single-column') {
+        bodyHtml = `
+<table style="width:100%;border-collapse:collapse;">
+  <tr><td style="vertical-align:top;padding:20px 32px;">
+    ${mainCol}
+    ${sideCol}
+  </td></tr>
+</table>`;
+      } else if (t.layout === 'sidebar-left') {
+        bodyHtml = `
+<table style="width:100%;border-collapse:collapse;">
+  <tr>
+    <td style="width:35%;vertical-align:top;padding:20px 20px 20px 32px;background-color:${t.sidebarBg};">
+      ${sideCol}
+    </td>
+    <td style="width:65%;vertical-align:top;padding:20px 32px 20px 24px;border-left:1px solid ${t.primary};">
+      ${mainCol}
+    </td>
+  </tr>
+</table>`;
+      } else {
+        // sidebar-right (default)
+        bodyHtml = `
+<table style="width:100%;border-collapse:collapse;">
+  <tr>
+    <td style="width:65%;vertical-align:top;padding:20px 24px 20px 32px;border-right:1px solid ${t.primary};">
+      ${mainCol}
+    </td>
+    <td style="width:35%;vertical-align:top;padding:20px 32px 20px 20px;background-color:${t.sidebarBg};">
+      ${sideCol}
+    </td>
+  </tr>
+</table>`;
+      }
 
       const wordHtml = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -713,83 +862,16 @@ body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-conten
 <meta charset='utf-8'>
 <title>${esc(cvData.fullName)} CV</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 0; color: ${c.text}; }
+  body { font-family: ${t.font}; margin: 0; color: ${t.text}; background: ${t.body}; }
   table { border-collapse: collapse; }
-  h2 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1.5px; color: ${c.primary}; border-bottom: 2px solid ${c.primary}; padding-bottom: 4px; margin: 16px 0 10px; }
   p { margin: 0; line-height: 1.5; }
   ul { margin: 0; padding-left: 18px; }
 </style>
 </head>
-<body style="margin:0;padding:0;">
-
-<!-- ═══ HEADER ═══ -->
-<table style="width:100%;background-color:${c.primary};border-collapse:collapse;">
-  <tr>
-    <td style="padding:24px 32px;">
-      <p style="margin:0;font-size:28pt;font-weight:900;color:#ffffff;letter-spacing:-0.5px;text-transform:uppercase;">${esc(cvData.fullName)}</p>
-      <p style="margin:6px 0 0;font-size:14pt;color:rgba(255,255,255,0.85);font-weight:600;">${esc(cvData.jobTitle)}</p>
-    </td>
-  </tr>
-</table>
-
-<!-- ═══ CONTACT BAR ═══ -->
-<table style="width:100%;background-color:${c.light};border-collapse:collapse;border-bottom:2px solid ${c.primary};">
-  <tr>
-    <td style="padding:10px 32px;">
-      <table style="border-collapse:collapse;">
-        <tr>
-          <td style="padding-right:24px;font-size:10pt;color:${c.text};">&#9993; ${esc(cvData.email)}</td>
-          <td style="padding-right:24px;font-size:10pt;color:${c.text};">&#9742; ${esc(cvData.phone)}</td>
-          <td style="font-size:10pt;color:${c.text};">&#128205; ${esc(cvData.location)}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-
-<!-- ═══ BODY: 2-column table ═══ -->
-<table style="width:100%;border-collapse:collapse;">
-  <tr>
-
-    <!-- LEFT COLUMN: 65% -->
-    <td style="width:65%;vertical-align:top;padding:20px 24px 20px 32px;border-right:1px solid #e2e8f0;">
-
-      <!-- Summary -->
-      <h2>Professional Summary</h2>
-      <p style="font-size:10.5pt;color:#374151;line-height:1.6;">${esc(cvData.summary)}</p>
-
-      <!-- Experience -->
-      <h2>Experience</h2>
-      <table style="width:100%;border-collapse:collapse;">
-        ${expRows}
-      </table>
-
-      ${cvData.projects.length > 0 ? `
-      <!-- Projects -->
-      <h2>Key Projects</h2>
-      <table style="width:100%;border-collapse:collapse;">
-        ${projectRows}
-      </table>` : ''}
-
-    </td>
-
-    <!-- RIGHT COLUMN: 35% -->
-    <td style="width:35%;vertical-align:top;padding:20px 32px 20px 20px;background-color:${c.light};">
-
-      <!-- Skills -->
-      <h2>Skills</h2>
-      <p style="line-height:1.8;">${skillTags}</p>
-
-      <!-- Education -->
-      <h2>Education</h2>
-      <table style="width:100%;border-collapse:collapse;">
-        ${eduRows}
-      </table>
-
-    </td>
-  </tr>
-</table>
-
+<body style="margin:0;padding:0;background:${t.body};">
+${headerHtml}
+${contactHtml}
+${bodyHtml}
 </body>
 </html>`;
 
