@@ -13,7 +13,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import html2pdf from 'html2pdf.js';
-import { asBlob } from 'html-docx-js-typescript';
+import html2canvas from 'html2canvas';
 import { saveAs } from 'file-saver';
 import mammoth from 'mammoth/mammoth.browser.js';
 import { CVTemplates, TEMPLATE_LIST } from './components/CVTemplates';
@@ -603,6 +603,22 @@ body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-conten
       await document.fonts.ready;
       await new Promise<void>(r => setTimeout(r, 400));
 
+      // Sanitise oklch() colors that html2canvas cannot parse.
+      // Walk every element, inline computed rgb values for color/background props.
+      const colorProps = ['color', 'background-color', 'border-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'outline-color'] as const;
+      clone.querySelectorAll('*').forEach(el => {
+        const cs = getComputedStyle(el);
+        const st = (el as HTMLElement).style;
+        for (const prop of colorProps) {
+          const val = cs.getPropertyValue(prop);
+          if (val && val.includes('oklch')) {
+            // getComputedStyle returns resolved rgb in most browsers; if it still
+            // contains oklch, replace with a fallback transparent
+            st.setProperty(prop, val.replace(/oklch\([^)]*\)/gi, 'transparent'));
+          }
+        }
+      });
+
       const opt = {
         margin: 0,
         filename: `${cvData.fullName.replace(/\s+/g, '_')}_CV.pdf`,
@@ -636,242 +652,73 @@ body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-conten
   };
 
   const downloadCVDOCX = async () => {
+    const cvEl = document.getElementById('cv-document');
+    if (!cvEl) return;
+
     const btnText = document.getElementById('btn-download-word-text');
     if (btnText) btnText.innerText = 'Generating...';
     setShowCvDownloadMenu(false);
 
     try {
-      // Template config: colors + layout variant for each template
-      type TemplateConfig = {
-        primary: string; light: string; text: string; body: string;
-        headerBg: string; headerText: string; contactBg: string; contactText: string;
-        sidebarBg: string; sidebarText: string; bulletColor: string; dateColor: string;
-        layout: 'sidebar-right' | 'sidebar-left' | 'single-column';
-        font: string; darkMode?: boolean;
-      };
+      // Render the CV exactly as it appears on screen using html2canvas
+      const offScreen = document.createElement('div');
+      offScreen.style.cssText = 'position:fixed;left:-10000px;top:0;width:850px;background:white;z-index:-9999;overflow:visible;pointer-events:none;';
+      document.body.appendChild(offScreen);
 
-      const base = (primary: string, light: string, text = '#1e293b'): TemplateConfig => ({
-        primary, light, text, body: '#ffffff',
-        headerBg: primary, headerText: '#ffffff', contactBg: light, contactText: text,
-        sidebarBg: light, sidebarText: text, bulletColor: '#374151', dateColor: '#64748b',
-        layout: 'sidebar-right', font: 'Arial, sans-serif',
+      const clone = cvEl.cloneNode(true) as HTMLElement;
+      clone.removeAttribute('data-projection-id');
+      clone.removeAttribute('data-motion-id');
+      clone.style.cssText = 'width:850px;min-height:1201px;transform:none;box-shadow:none;border-radius:0;position:relative;overflow:visible;margin:0;';
+      offScreen.appendChild(clone);
+
+      await document.fonts.ready;
+      await new Promise<void>(r => setTimeout(r, 400));
+
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        letterRendering: true,
+        width: 850,
+        windowWidth: 850,
       });
 
-      const dark = (primary: string, bg: string, text: string): TemplateConfig => ({
-        primary, light: bg, text, body: bg,
-        headerBg: bg, headerText: text, contactBg: bg, contactText: text,
-        sidebarBg: bg, sidebarText: text, bulletColor: text, dateColor: primary,
-        layout: 'sidebar-right', font: "'Courier New', monospace", darkMode: true,
-      });
+      document.body.removeChild(offScreen);
 
-      const TEMPLATES: Record<string, TemplateConfig> = {
-        // — Corporate / Professional —
-        'modern':               base('#4f46e5', '#eef2ff'),
-        'professional':         { ...base('#1e293b', '#f8fafc'), layout: 'single-column' },
-        'executive':            { ...base('#0f172a', '#f1f5f9', '#0f172a'), layout: 'sidebar-right' },
-        'corporate-sharp':      { ...base('#6366f1', '#eef2ff'), layout: 'sidebar-left' },
-        'platinum-executive':   { ...base('#c5a059', '#faf9f6', '#1a1c1e'), headerBg: '#1a1c1e', headerText: '#c5a059' },
-        'executive-suite':      { ...base('#334155', '#f1f5f9', '#0f172a'), layout: 'single-column' },
-        'finance-trust':        { ...base('#b89151', '#f8fafc', '#1e2a38'), layout: 'single-column', headerBg: '#1e2a38', headerText: '#b89151' },
-        'legal-counsel':        { ...base('#1e3a5f', '#f8fafc', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
+      // Convert canvas to base64 image
+      const imgDataUrl = canvas.toDataURL('image/png');
+      const imgWidthPx = canvas.width;
+      const imgHeightPx = canvas.height;
 
-        // — Creative / Design —
-        'creative':             { ...base('#4f46e5', '#f8fafc', '#1e293b'), layout: 'sidebar-left', headerBg: '#0f172a' },
-        'artistic-flow':        { ...base('#fb7185', '#faf9f6', '#2c1810'), layout: 'single-column', font: "'Georgia', serif" },
-        'designer-portfolio':   { ...base('#f43f5e', '#faf9f6', '#1e293b'), layout: 'sidebar-left' },
-        'creative-director':    dark('#ffffff', '#1a1a1a', '#f4f4f4'),
-        'abstract-shapes':      { ...base('#3b82f6', '#f8fafc', '#1e293b'), layout: 'sidebar-left' },
-        'freelance-pop':        { ...base('#ff4b4b', '#fffbe6', '#1e293b'), layout: 'single-column', headerBg: '#ffe227', headerText: '#1e293b' },
-
-        // — Minimal —
-        'minimal-pure':         { ...base('#a1a1aa', '#ffffff', '#27272a'), layout: 'single-column', headerBg: '#ffffff', headerText: '#27272a' },
-        'ultra-minimal':        { ...base('#000000', '#ffffff', '#000000'), layout: 'single-column', headerBg: '#ffffff', headerText: '#000000' },
-        'swiss-clean':          { ...base('#0f172a', '#f8fafc'), layout: 'sidebar-left', headerBg: '#f8fafc', headerText: '#0f172a' },
-        'minimal-serif':        { ...base('#334155', '#f8fafc'), layout: 'single-column', font: "'Georgia', serif", headerBg: '#f8fafc', headerText: '#334155' },
-        'elegant-serif':        { ...base('#111111', '#f9f9f9', '#222222'), layout: 'sidebar-right', font: "'Georgia', serif", headerBg: '#f9f9f9', headerText: '#111111' },
-        'elegant-simple':       { ...base('#334155', '#f8fafc', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
-        'typo-pure':            { ...base('#4f46e5', '#ffffff', '#18181b'), layout: 'sidebar-right' },
-        'architecture-line':    { ...base('#000000', '#fbfbfb', '#1D1D1F'), layout: 'sidebar-left', headerBg: '#fbfbfb', headerText: '#1D1D1F' },
-        'copywriter-pro':       { ...base('#0f172a', '#fdfbf7', '#0f172a'), layout: 'single-column', font: "'Georgia', serif", headerBg: '#fdfbf7', headerText: '#0f172a' },
-        'minimalist-grid':      { ...base('#000000', '#ffffff', '#000000'), layout: 'single-column', headerBg: '#ffffff', headerText: '#000000' },
-
-        // — Tech / Engineering —
-        'tech-dark':            { ...dark('#6366f1', '#0f172a', '#e2e8f0'), layout: 'sidebar-left' },
-        'developer-terminal':   { ...dark('#3fb950', '#0d1117', '#c9d1d9'), layout: 'single-column', font: "'Courier New', monospace" },
-        'cyber-clean':          { ...dark('#00ff41', '#0a0a0a', '#ededed'), layout: 'sidebar-right' },
-        'cyber-neon':           { ...dark('#66fcf1', '#0b0c10', '#c5c6c7'), layout: 'sidebar-left' },
-        'engineering-blueprint': { ...dark('#71b4e1', '#0c182a', '#71b4e1'), layout: 'sidebar-right', font: "'Courier New', monospace" },
-        'ai-engineer':          { ...base('#18181b', '#fafafa', '#18181b'), layout: 'sidebar-left', font: "'Courier New', monospace" },
-        'app-developer':        base('#3b82f6', '#f8fafc'),
-        'tech-lead':            { ...base('#06b6d4', '#f0fdfa', '#0f172a'), layout: 'sidebar-right' },
-
-        // — Bold / Vibrant —
-        'neon-bold':            { ...dark('#06b6d4', '#18181b', '#ffffff'), layout: 'sidebar-right' },
-        'vibrant-gradient':     base('#c026d3', '#fdf4ff', '#1e293b'),
-        'glassmorphism-pro':    { ...dark('#818cf8', '#0f172a', '#ffffff'), layout: 'sidebar-right' },
-        'neo-brutalism':        { ...base('#ff5e5b', '#f7f2eb', '#111111'), layout: 'single-column', headerBg: '#ff5e5b', headerText: '#ffffff' },
-        'bold-executive':       base('#dc2626', '#fef2f2'),
-        'editorial-bold':       base('#e11d48', '#fff1f2'),
-        'pastel-dream':         { ...base('#6366f1', '#eef2ff', '#312e81'), headerBg: '#eef2ff', headerText: '#312e81', layout: 'sidebar-left' },
-        'portfolio-grid':       { ...base('#4f46e5', '#fafafa', '#18181b'), layout: 'single-column' },
-
-        // — Marketing / Sales —
-        'marketing-bold':       { ...base('#ff4e50', '#fff5f5', '#1e293b'), layout: 'sidebar-right' },
-        'sales-closer':         { ...base('#3498db', '#eff6ff', '#2c3e50'), layout: 'single-column' },
-        'brand-strategist':     { ...base('#d4af37', '#fdfaf6', '#333333'), layout: 'sidebar-left', headerBg: '#333333', headerText: '#d4af37' },
-        'marketing-playbook':   base('#e11d48', '#fff1f2'),
-
-        // — Startup / Product —
-        'startup':              base('#4f46e5', '#eef2ff'),
-        'startup-pitch':        base('#6c5ce7', '#f5f3ff'),
-        'startup-founder':      base('#4f46e5', '#eef2ff'),
-        'saas-builder':         base('#4f46e5', '#eef2ff'),
-        'product-manager':      { ...base('#059669', '#ecfdf5'), layout: 'sidebar-right' },
-        'data-storyteller':     { ...base('#0066cc', '#f0f7ff', '#1a1a1a'), layout: 'sidebar-left' },
-
-        // — Industry Specific —
-        'classic':              base('#1e3a5f', '#eff6ff'),
-        'culinary-artist':      { ...base('#b45309', '#fffbeb', '#1e293b'), layout: 'single-column', font: "'Georgia', serif" },
-        'real-estate-pro':      { ...base('#b89151', '#faf9f6', '#1e293b'), layout: 'sidebar-right' },
-        'ocean-blue':           { ...base('#0369a1', '#f0f9ff', '#0c4a6e'), layout: 'single-column' },
-        'luxury-brand':         { ...base('#c5a059', '#faf9f6', '#1a1a1a'), layout: 'sidebar-left', headerBg: '#1a1a1a', headerText: '#c5a059', font: "'Georgia', serif" },
-      };
-
-      const t = TEMPLATES[selectedTemplate] ?? TEMPLATES['modern'];
-
-      // Sanitise a string for safe HTML output
-      const esc = (s: string) =>
-        String(s ?? '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
-
-      // ── Reusable content builders ──
-      const expRows = cvData.experience.map(exp => `
-        <tr><td style="padding:0 0 16px 0;">
-          <table style="width:100%;border-collapse:collapse;"><tr>
-            <td style="width:70%;vertical-align:top;">
-              <p style="margin:0;font-size:12pt;font-weight:bold;color:${t.text};">${esc(exp.role)}</p>
-              <p style="margin:2px 0 0;font-size:11pt;color:${t.primary};font-weight:600;">${esc(exp.company)}</p>
-            </td>
-            <td style="width:30%;text-align:right;vertical-align:top;">
-              <p style="margin:0;font-size:10pt;color:${t.dateColor};">${esc(exp.periodStart)} – ${esc(exp.periodEnd)}</p>
-            </td>
-          </tr></table>
-          <ul style="margin:6px 0 0 0;padding-left:18px;">
-            ${(exp.bullets ?? []).map(b => `<li style="font-size:10.5pt;color:${t.bulletColor};line-height:1.5;margin-bottom:4px;">${esc(b)}</li>`).join('')}
-          </ul>
-        </td></tr>`).join('');
-
-      const eduRows = cvData.education.map(edu => `
-        <tr><td style="padding:0 0 10px 0;">
-          <p style="margin:0;font-size:11pt;font-weight:bold;color:${t.sidebarText};">${esc(edu.degree)}</p>
-          <p style="margin:2px 0;font-size:10.5pt;color:${t.primary};">${esc(edu.school)}</p>
-          <p style="margin:0;font-size:10pt;color:${t.dateColor};">${esc(edu.year)}</p>
-        </td></tr>`).join('');
-
-      const skillTags = cvData.skills.map(s =>
-        `<span style="display:inline-block;background:${t.darkMode ? t.primary : t.light};color:${t.darkMode ? t.body : t.primary};border:1px solid ${t.primary};padding:2px 8px;border-radius:4px;font-size:9.5pt;font-weight:600;margin:2px;">${esc(s)}</span>`
-      ).join(' ');
-
-      const projectRows = cvData.projects.map(p => `
-        <tr><td style="padding:0 0 10px 0;">
-          <p style="margin:0;font-size:11pt;font-weight:bold;color:${t.text};">${esc(p.name)}</p>
-          <p style="margin:2px 0 0;font-size:10.5pt;color:${t.bulletColor};line-height:1.4;">${esc(p.description)}</p>
-        </td></tr>`).join('');
-
-      // ── Header HTML ──
-      const headerHtml = `
-<table style="width:100%;background-color:${t.headerBg};border-collapse:collapse;">
-  <tr><td style="padding:24px 32px;">
-    <p style="margin:0;font-size:28pt;font-weight:900;color:${t.headerText};letter-spacing:-0.5px;text-transform:uppercase;font-family:${t.font};">${esc(cvData.fullName)}</p>
-    <p style="margin:6px 0 0;font-size:14pt;color:${t.headerText};opacity:0.85;font-weight:600;">${esc(cvData.jobTitle)}</p>
-  </td></tr>
-</table>`;
-
-      // ── Contact bar HTML ──
-      const contactHtml = `
-<table style="width:100%;background-color:${t.contactBg};border-collapse:collapse;border-bottom:2px solid ${t.primary};">
-  <tr><td style="padding:10px 32px;">
-    <table style="border-collapse:collapse;"><tr>
-      <td style="padding-right:24px;font-size:10pt;color:${t.contactText};">&#9993; ${esc(cvData.email)}</td>
-      <td style="padding-right:24px;font-size:10pt;color:${t.contactText};">&#9742; ${esc(cvData.phone)}</td>
-      <td style="font-size:10pt;color:${t.contactText};">&#128205; ${esc(cvData.location)}</td>
-    </tr></table>
-  </td></tr>
-</table>`;
-
-      // ── Main content column HTML ──
-      const mainCol = `
-      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Professional Summary</h2>
-      <p style="font-size:10.5pt;color:${t.bulletColor};line-height:1.6;">${esc(cvData.summary)}</p>
-      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Experience</h2>
-      <table style="width:100%;border-collapse:collapse;">${expRows}</table>
-      ${cvData.projects.length > 0 ? `
-      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Key Projects</h2>
-      <table style="width:100%;border-collapse:collapse;">${projectRows}</table>` : ''}`;
-
-      // ── Sidebar column HTML ──
-      const sideCol = `
-      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Skills</h2>
-      <p style="line-height:1.8;">${skillTags}</p>
-      <h2 style="font-size:10pt;text-transform:uppercase;letter-spacing:1.5px;color:${t.primary};border-bottom:2px solid ${t.primary};padding-bottom:4px;margin:16px 0 10px;">Education</h2>
-      <table style="width:100%;border-collapse:collapse;">${eduRows}</table>`;
-
-      // ── Body layout based on template ──
-      let bodyHtml: string;
-      if (t.layout === 'single-column') {
-        bodyHtml = `
-<table style="width:100%;border-collapse:collapse;">
-  <tr><td style="vertical-align:top;padding:20px 32px;">
-    ${mainCol}
-    ${sideCol}
-  </td></tr>
-</table>`;
-      } else if (t.layout === 'sidebar-left') {
-        bodyHtml = `
-<table style="width:100%;border-collapse:collapse;">
-  <tr>
-    <td style="width:35%;vertical-align:top;padding:20px 20px 20px 32px;background-color:${t.sidebarBg};">
-      ${sideCol}
-    </td>
-    <td style="width:65%;vertical-align:top;padding:20px 32px 20px 24px;border-left:1px solid ${t.primary};">
-      ${mainCol}
-    </td>
-  </tr>
-</table>`;
-      } else {
-        // sidebar-right (default)
-        bodyHtml = `
-<table style="width:100%;border-collapse:collapse;">
-  <tr>
-    <td style="width:65%;vertical-align:top;padding:20px 24px 20px 32px;border-right:1px solid ${t.primary};">
-      ${mainCol}
-    </td>
-    <td style="width:35%;vertical-align:top;padding:20px 32px 20px 20px;background-color:${t.sidebarBg};">
-      ${sideCol}
-    </td>
-  </tr>
-</table>`;
-      }
+      // A4 page in Word: ~595pt wide (8.27in × 72). Scale image to fit A4 width.
+      const a4WidthPt = 595;
+      const scaledHeightPt = Math.round((imgHeightPx / imgWidthPx) * a4WidthPt);
 
       const wordHtml = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
 <meta charset='utf-8'>
-<title>${esc(cvData.fullName)} CV</title>
+<title>${cvData.fullName.replace(/[<>&"]/g, '')} CV</title>
+<!--[if gte mso 9]>
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+    <w:DoNotOptimizeForBrowser/>
+  </w:WordDocument>
+</xml>
+<![endif]-->
 <style>
-  body { font-family: ${t.font}; margin: 0; color: ${t.text}; background: ${t.body}; }
-  table { border-collapse: collapse; }
-  p { margin: 0; line-height: 1.5; }
-  ul { margin: 0; padding-left: 18px; }
+  @page { size: A4; margin: 0; }
+  body { margin: 0; padding: 0; }
+  .cv-page { page-break-after: always; }
+  img { display: block; }
 </style>
 </head>
-<body style="margin:0;padding:0;background:${t.body};">
-${headerHtml}
-${contactHtml}
-${bodyHtml}
+<body style="margin:0;padding:0;">
+<div class="cv-page">
+  <img src="${imgDataUrl}" width="${a4WidthPt}" height="${scaledHeightPt}" style="width:${a4WidthPt}pt;height:${scaledHeightPt}pt;display:block;" />
+</div>
 </body>
 </html>`;
 
